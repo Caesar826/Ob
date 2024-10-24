@@ -1,0 +1,286 @@
+'use client'
+
+import React, { useState, useEffect, createContext, useContext } from 'react'
+import { marked } from 'marked'
+import { File, FolderOpen, Plus, Eye, Edit2, Settings } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+
+type Note = {
+  id: string
+  title: string
+  content: string
+}
+
+type Plugin = {
+  name: string
+  run: (content: string) => string
+}
+
+type Theme = {
+  name: string
+  className: string
+}
+
+const themes: Theme[] = [
+  { name: 'Light', className: 'theme-light' },
+  { name: 'Dark', className: 'theme-dark' },
+  { name: 'Sepia', className: 'theme-sepia' },
+]
+
+const ThemeContext = createContext<{ theme: Theme; setTheme: (theme: Theme) => void } | undefined>(undefined)
+
+const useTheme = () => {
+  const context = useContext(ThemeContext)
+  if (context === undefined) {
+    throw new Error('useTheme must be used within a ThemeProvider')
+  }
+  return context
+}
+
+const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [theme, setTheme] = useState<Theme>(themes[0])
+
+  useEffect(() => {
+    document.body.className = theme.className
+  }, [theme])
+
+  return (
+    <ThemeContext.Provider value={{ theme, setTheme }}>
+      {children}
+    </ThemeContext.Provider>
+  )
+}
+
+const plugins: Plugin[] = [
+  {
+    name: 'Uppercase Headings',
+    run: (content: string) => content.replace(/^(#+\s*)(.*)/gm, (_, hashes, title) => `${hashes}${title.toUpperCase()}`)
+  },
+  {
+    name: 'Add Timestamps',
+    run: (content: string) => `Last edited: ${new Date().toLocaleString()}\n\n${content}`
+  }
+]
+
+export default function ObsidianClone() {
+  const [notes, setNotes] = useState<Note[]>([
+    { id: '1', title: 'Welcome', content: '# Welcome to ObsidianClone\n\nThis is your first note!' },
+    { id: '2', title: 'Features', content: '- Markdown support\n- File navigation\n- Preview mode\n- Plugins\n- Themes' },
+  ])
+  const [selectedNote, setSelectedNote] = useState<Note | null>(notes[0])
+  const [isPreviewMode, setIsPreviewMode] = useState(false)
+  const [newNoteTitle, setNewNoteTitle] = useState('')
+  const [activePlugins, setActivePlugins] = useState<string[]>([])
+
+  const createNewNote = () => {
+    if (newNoteTitle.trim() === '') return
+    const newNote: Note = {
+      id: Date.now().toString(),
+      title: newNoteTitle,
+      content: `# ${newNoteTitle}\n\nStart writing your note here...`,
+    }
+    setNotes([...notes, newNote])
+    setSelectedNote(newNote)
+    setNewNoteTitle('')
+  }
+
+  const updateNoteContent = (content: string) => {
+    if (!selectedNote) return
+    const updatedNotes = notes.map(note =>
+      note.id === selectedNote.id ? { ...note, content } : note
+    )
+    setNotes(updatedNotes)
+    setSelectedNote({ ...selectedNote, content })
+  }
+
+  const applyPlugins = (content: string): string => {
+    return activePlugins.reduce((acc, pluginName) => {
+      const plugin = plugins.find(p => p.name === pluginName)
+      return plugin ? plugin.run(acc) : acc
+    }, content)
+  }
+
+  const togglePlugin = (pluginName: string) => {
+    setActivePlugins(prev =>
+      prev.includes(pluginName)
+        ? prev.filter(name => name !== pluginName)
+        : [...prev, pluginName]
+    )
+  }
+
+  return (
+    <ThemeProvider>
+      <ObsidianCloneContent
+        notes={notes}
+        selectedNote={selectedNote}
+        setSelectedNote={setSelectedNote}
+        isPreviewMode={isPreviewMode}
+        setIsPreviewMode={setIsPreviewMode}
+        newNoteTitle={newNoteTitle}
+        setNewNoteTitle={setNewNoteTitle}
+        createNewNote={createNewNote}
+        updateNoteContent={updateNoteContent}
+        applyPlugins={applyPlugins}
+        activePlugins={activePlugins}
+        togglePlugin={togglePlugin}
+      />
+    </ThemeProvider>
+  )
+}
+
+function ObsidianCloneContent({
+  notes,
+  selectedNote,
+  setSelectedNote,
+  isPreviewMode,
+  setIsPreviewMode,
+  newNoteTitle,
+  setNewNoteTitle,
+  createNewNote,
+  updateNoteContent,
+  applyPlugins,
+  activePlugins,
+  togglePlugin
+}: {
+  notes: Note[]
+  selectedNote: Note | null
+  setSelectedNote: (note: Note | null) => void
+  isPreviewMode: boolean
+  setIsPreviewMode: (mode: boolean) => void
+  newNoteTitle: string
+  setNewNoteTitle: (title: string) => void
+  createNewNote: () => void
+  updateNoteContent: (content: string) => void
+  applyPlugins: (content: string) => string
+  activePlugins: string[]
+  togglePlugin: (pluginName: string) => void
+}) {
+  const { theme, setTheme } = useTheme()
+
+  return (
+    <div className="flex h-screen bg-background">
+      {/* Sidebar */}
+      <div className="w-64 bg-muted p-4 overflow-y-auto">
+        <h2 className="text-xl font-bold mb-4">Notes</h2>
+        <div className="flex mb-4">
+          <Input
+            type="text"
+            placeholder="New note title"
+            value={newNoteTitle}
+            onChange={(e) => setNewNoteTitle(e.target.value)}
+            className="mr-2"
+          />
+          <Button onClick={createNewNote} size="icon">
+            <Plus className="h-4 w-4" />
+          </Button>
+        </div>
+        <ul>
+          {notes.map(note => (
+            <li
+              key={note.id}
+              className={`flex items-center p-2 cursor-pointer rounded ${
+                selectedNote?.id === note.id ? 'bg-accent text-accent-foreground' : ''
+              }`}
+              onClick={() => setSelectedNote(note)}
+            >
+              <File className="mr-2 h-4 w-4" />
+              {note.title}
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      {/* Main content area */}
+      <div className="flex-1 flex flex-col">
+        {/* Toolbar */}
+        <div className="bg-muted p-2 flex justify-between items-center">
+          <h1 className="text-xl font-bold">{selectedNote?.title || 'No note selected'}</h1>
+          <div className="flex items-center">
+            <Select value={theme.name} onValueChange={(value) => setTheme(themes.find(t => t.name === value) || themes[0])}>
+              <SelectTrigger className="w-[180px] mr-2">
+                <SelectValue placeholder="Select theme" />
+              </SelectTrigger>
+              <SelectContent>
+                {themes.map((theme) => (
+                  <SelectItem key={theme.name} value={theme.name}>
+                    {theme.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              variant={isPreviewMode ? 'outline' : 'default'}
+              size="icon"
+              onClick={() => setIsPreviewMode(false)}
+              className="mr-2"
+            >
+              <Edit2 className="h-4 w-4" />
+            </Button>
+            <Button
+              variant={isPreviewMode ? 'default' : 'outline'}
+              size="icon"
+              onClick={() => setIsPreviewMode(true)}
+              className="mr-2"
+            >
+              <Eye className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => document.getElementById('plugin-modal')?.showModal()}
+            >
+              <Settings className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+
+        {/* Editor/Preview area */}
+        <div className="flex-1 p-4 overflow-y-auto">
+          {selectedNote ? (
+            isPreviewMode ? (
+              <div
+                className="prose max-w-none"
+                dangerouslySetInnerHTML={{ __html: marked(applyPlugins(selectedNote.content)) }}
+              />
+            ) : (
+              <textarea
+                className="w-full h-full p-2 bg-background text-foreground border-none resize-none focus:outline-none"
+                value={selectedNote.content}
+                onChange={(e) => updateNoteContent(e.target.value)}
+              />
+            )
+          ) : (
+            <p>Select a note to view or edit</p>
+          )}
+        </div>
+      </div>
+
+      {/* Plugin Modal */}
+      <dialog id="plugin-modal" className="modal">
+        <div className="modal-box">
+          <h3 className="font-bold text-lg mb-4">Plugins</h3>
+          {plugins.map(plugin => (
+            <div key={plugin.name} className="form-control">
+              <label className="label cursor-pointer">
+                <span className="label-text">{plugin.name}</span>
+                <input
+                  type="checkbox"
+                  checked={activePlugins.includes(plugin.name)}
+                  onChange={() => togglePlugin(plugin.name)}
+                  className="checkbox"
+                />
+              </label>
+            </div>
+          ))}
+          <div className="modal-action">
+            <form method="dialog">
+              <Button>Close</Button>
+            </form>
+          </div>
+        </div>
+      </dialog>
+    </div>
+  )
+}
